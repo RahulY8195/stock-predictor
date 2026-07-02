@@ -122,7 +122,10 @@ with st.sidebar:
         "Model",
         ["Gradient Boosting", "MLP Neural Network"],
         index=0,
-        help="Gradient Boosting: fast tree-based ensemble. MLP: lightweight neural network. Both train in seconds.",
+        help=(
+            "Gradient Boosting: fast tree-based ensemble. "
+            "MLP: lightweight neural network. Both train in seconds."
+        ),
     )
 
     st.divider()
@@ -252,30 +255,60 @@ ma20_val = df["MA20"].squeeze().iloc[-1]
 ma50_val = df["MA50"].squeeze().iloc[-1]
 price_val = close_series[-1]
 
-rsi_signal = "🔴 Overbought — price may pull back" if rsi_val > 70 else ("🟢 Oversold — potential bounce" if rsi_val < 30 else "🟡 Neutral zone")
-macd_signal = "🟢 Bullish crossover — upward momentum" if macd_val > signal_val else "🔴 Bearish crossover — downward momentum"
-ma_signal = "🟢 Bullish — price above both MAs" if price_val > ma20_val > ma50_val else ("🔴 Bearish — price below both MAs" if price_val < ma20_val < ma50_val else "🟡 Mixed — watch for crossover")
+if rsi_val > 70:
+    rsi_signal = "🔴 Overbought — price may pull back"
+elif rsi_val < 30:
+    rsi_signal = "🟢 Oversold — potential bounce"
+else:
+    rsi_signal = "🟡 Neutral zone"
+
+if macd_val > signal_val:
+    macd_signal = "🟢 Bullish crossover — upward momentum"
+else:
+    macd_signal = "🔴 Bearish crossover — downward momentum"
+
+if price_val > ma20_val > ma50_val:
+    ma_signal = "🟢 Bullish — price above both MAs"
+elif price_val < ma20_val < ma50_val:
+    ma_signal = "🔴 Bearish — price below both MAs"
+else:
+    ma_signal = "🟡 Mixed — watch for crossover"
 
 st.subheader("Indicator Explanations")
 c1, c2, c3, c4, c5 = st.columns(5)
 
 c1.markdown("**MA 20 & MA 50**")
-c1.caption("Moving averages smooth out price noise. When MA 20 crosses above MA 50 it's a bullish 'golden cross'; below is a bearish 'death cross'.")
+c1.caption(
+    "Moving averages smooth out price noise. When MA 20 crosses above "
+    "MA 50 it's a bullish 'golden cross'; below is a bearish 'death cross'."
+)
 c1.info(ma_signal)
 
 c2.markdown("**RSI**")
-c2.caption(f"Relative Strength Index (0–100) measures momentum. Above 70 = overbought, below 30 = oversold. Current: **{rsi_val:.1f}**")
+c2.caption(
+    "Relative Strength Index (0–100) measures momentum. Above 70 = "
+    f"overbought, below 30 = oversold. Current: **{rsi_val:.1f}**"
+)
 c2.info(rsi_signal)
 
 c3.markdown("**MACD**")
-c3.caption("Moving Average Convergence Divergence tracks trend direction. When the MACD line crosses above the Signal line, momentum is turning bullish.")
+c3.caption(
+    "Moving Average Convergence Divergence tracks trend direction. "
+    "When the MACD line crosses above the Signal line, momentum is turning bullish."
+)
 c3.info(macd_signal)
 
 c4.markdown("**Model Fit**")
-c4.caption("The dashed red line shows how well the model explains historical prices. Closer to actual = better trained model.")
+c4.caption(
+    "The dashed red line shows how well the model explains historical "
+    "prices. Closer to actual = better trained model."
+)
 
 c5.markdown("**±5% Band**")
-c5.caption("Shaded forecast range showing ±5% uncertainty around predictions. Real price movement could exceed this — treat as a rough confidence zone, not a guarantee.")
+c5.caption(
+    "Shaded forecast range showing ±5% uncertainty around predictions. "
+    "Real price movement could exceed this — treat as a rough confidence zone, not a guarantee."
+)
 
 st.subheader("Forecast Table")
 forecast_df = pd.DataFrame({
