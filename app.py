@@ -1,115 +1,36 @@
-import streamlit as st
-import yfinance as yf
+import os
+
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
+import requests
+import streamlit as st
 from plotly.subplots import make_subplots
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.neural_network import MLPRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-import warnings
 
-warnings.filterwarnings("ignore")
+API_BASE_URL = os.environ.get("STOCK_PREDICTOR_API_URL", "http://localhost:8000")
 
-st.set_page_config(
-    page_title="Stock Predictor",
-    page_icon="📈",
-    layout="wide",
-)
+st.set_page_config(page_title="Stock Predictor", page_icon="📈", layout="wide")
 
 
-@st.cache_data(show_spinner=False)
-def fetch_data(ticker: str, period: str) -> pd.DataFrame:
-    df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
-    df.dropna(inplace=True)
-    return df
+def api_get(path: str, **params):
+    resp = requests.get(f"{API_BASE_URL}{path}", params=params, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def api_post(path: str, json: dict | None = None):
+    resp = requests.post(f"{API_BASE_URL}{path}", json=json, timeout=120)
+    resp.raise_for_status()
+    return resp.json()
 
 
 @st.cache_data(show_spinner=False)
 def fetch_info(ticker: str) -> dict:
-    import base64
-    import requests
-    from urllib.parse import urlparse
-
-    result = {"logo_b64": "", "name": ticker}
-    try:
-        info = yf.Ticker(ticker).info
-        result["name"] = info.get("shortName", ticker)
-        website = info.get("website", "")
-        if not website:
-            return result
-        domain = urlparse(website).netloc.replace("www.", "")
-        logo_url = f"https://www.google.com/s2/favicons?domain={domain}&sz=128"
-        resp = requests.get(logo_url, timeout=5)
-        if resp.status_code == 200 and resp.content:
-            result["logo_b64"] = base64.b64encode(resp.content).decode()
-    except Exception:
-        pass
-    return result
+    return api_get(f"/info/{ticker}")
 
 
-def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    close = df["Close"].squeeze()
-    df = df.copy()
-    df["MA20"] = close.rolling(20).mean()
-    df["MA50"] = close.rolling(50).mean()
-    delta = close.diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    rs = gain / loss.replace(0, np.nan)
-    df["RSI"] = 100 - 100 / (1 + rs)
-    ema12 = close.ewm(span=12, adjust=False).mean()
-    ema26 = close.ewm(span=26, adjust=False).mean()
-    df["MACD"] = ema12 - ema26
-    df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
-    return df
-
-
-def build_sequences(series: np.ndarray, window: int):
-    X, y = [], []
-    for i in range(window, len(series)):
-        X.append(series[i - window : i])
-        y.append(series[i])
-    return np.array(X), np.array(y)
-
-
-def predict_future(model, scaler, last_window: np.ndarray, n_days: int) -> np.ndarray:
-    scaled = scaler.transform(last_window.reshape(-1, 1)).flatten()
-    current = list(scaled)
-    w = len(last_window)
-    preds = []
-    for _ in range(n_days):
-        x = np.array(current[-w:]).reshape(1, -1)
-        p = model.predict(x)[0]
-        preds.append(p)
-        current.append(p)
-    return scaler.inverse_transform(np.array(preds).reshape(-1, 1)).flatten()
-
-
-@st.cache_resource(show_spinner=False)
-def train_model(series_tuple: tuple, window: int, model_name: str):
-    series = np.array(series_tuple)
-    scaler = MinMaxScaler()
-    scaled = scaler.fit_transform(series.reshape(-1, 1)).flatten()
-    X, y = build_sequences(scaled, window)
-    split = int(len(X) * 0.85)
-
-    if model_name == "Gradient Boosting":
-        m = GradientBoostingRegressor(n_estimators=200, max_depth=4, learning_rate=0.05)
-    else:
-        m = MLPRegressor(
-            hidden_layer_sizes=(64, 32),
-            activation="relu",
-            max_iter=300,
-            early_stopping=True,
-            validation_fraction=0.1,
-            n_iter_no_change=10,
-            random_state=42,
-        )
-
-    m.fit(X[:split], y[:split])
-    return m, scaler
+@st.cache_data(show_spinner=False)
+def fetch_stock(ticker: str, period: str) -> dict:
+    return api_get(f"/stock/{ticker}", period=period)
 
 
 with st.sidebar:
@@ -135,7 +56,15 @@ with st.sidebar:
     st.divider()
     run_btn = st.button("Train & Predict", type="primary", width="stretch")
 
-info = fetch_info(ticker)
+try:
+    info = fetch_info(ticker)
+except requests.exceptions.RequestException:
+    st.error(
+        f"Can't reach the API at `{API_BASE_URL}`. Start it with "
+        "`uvicorn app.main:app --reload` and refresh."
+    )
+    st.stop()
+
 logo_b64 = info["logo_b64"]
 company_name = info["name"]
 
@@ -161,14 +90,16 @@ if not run_btn:
     st.stop()
 
 with st.spinner(f"Fetching {ticker} data…"):
-    df = fetch_data(ticker, period)
+    try:
+        stock = fetch_stock(ticker, period)
+    except requests.exceptions.HTTPError:
+        st.error(f"No data found for **{ticker}**. Check the ticker symbol and try again.")
+        st.stop()
 
-if df.empty:
-    st.error(f"No data found for **{ticker}**. Check the ticker symbol and try again.")
-    st.stop()
-
-df = add_indicators(df)
-close_series = df["Close"].squeeze().values.astype(float)
+history = pd.DataFrame(stock["history"])
+history["Date"] = pd.to_datetime(history["Date"])
+history = history.set_index("Date")
+close_series = history["Close"].values.astype(float)
 
 col1, col2, col3, col4 = st.columns(4)
 latest = close_series[-1]
@@ -178,29 +109,32 @@ pct = change / prev * 100
 col1.metric("Latest Close", f"${latest:.2f}", f"{change:+.2f} ({pct:+.2f}%)")
 col2.metric("52-wk High", f"${close_series.max():.2f}")
 col3.metric("52-wk Low", f"${close_series.min():.2f}")
-col4.metric("Data points", f"{len(df):,}")
+col4.metric("Data points", f"{len(history):,}")
 
 with st.spinner(f"Training {model_name}…"):
-    model, scaler = train_model(tuple(close_series), window, model_name)
+    prediction = api_post(
+        "/predict",
+        json={
+            "ticker": ticker,
+            "period": period,
+            "model": model_name,
+            "window": window,
+            "forecast_days": forecast_days,
+        },
+    )
 
-future_prices = predict_future(model, scaler, close_series[-window:], forecast_days)
-
-scaled_full = scaler.transform(close_series.reshape(-1, 1)).flatten()
-X_all, _ = build_sequences(scaled_full, window)
-y_pred = scaler.inverse_transform(model.predict(X_all).reshape(-1, 1)).flatten()
-y_true = close_series[window:]
-
-mae = mean_absolute_error(y_true, y_pred)
-rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+forecast_df_raw = pd.DataFrame(prediction["forecast"])
+future_dates = pd.to_datetime(forecast_df_raw["date"])
+future_prices = forecast_df_raw["predicted_price"].values
 
 cm1, cm2, cm3 = st.columns(3)
-cm1.metric("MAE", f"${mae:.2f}")
-cm2.metric("RMSE", f"${rmse:.2f}")
-cm3.metric("MAPE", f"{mape:.2f}%")
-
-last_date = df.index[-1]
-future_dates = pd.bdate_range(start=last_date, periods=forecast_days + 1)[1:]
+cm1.metric("Historical fit MAE", f"${prediction['fit_mae']:.2f}")
+cm2.metric("Historical fit RMSE", f"${prediction['fit_rmse']:.2f}")
+cm3.metric("Historical fit MAPE", f"{prediction['fit_mape']:.2f}%")
+st.caption(
+    "These are **in-sample** metrics — how well the model explains the price history "
+    "it was trained on. See **Tracked Accuracy** below for real out-of-sample performance."
+)
 
 st.subheader("Price History & Forecast")
 fig = make_subplots(
@@ -208,14 +142,12 @@ fig = make_subplots(
     row_heights=[0.6, 0.2, 0.2], vertical_spacing=0.04,
 )
 
-fig.add_trace(go.Scatter(x=df.index, y=df["Close"].squeeze(), name="Actual",
+fig.add_trace(go.Scatter(x=history.index, y=history["Close"], name="Actual",
     line=dict(color="#636EFA", width=1.5)), row=1, col=1)
-fig.add_trace(go.Scatter(x=df.index, y=df["MA20"].squeeze(), name="MA 20",
+fig.add_trace(go.Scatter(x=history.index, y=history["MA20"], name="MA 20",
     line=dict(color="#FFA15A", width=1, dash="dot")), row=1, col=1)
-fig.add_trace(go.Scatter(x=df.index, y=df["MA50"].squeeze(), name="MA 50",
+fig.add_trace(go.Scatter(x=history.index, y=history["MA50"], name="MA 50",
     line=dict(color="#00CC96", width=1, dash="dot")), row=1, col=1)
-fig.add_trace(go.Scatter(x=df.index[window:], y=y_pred, name="Model fit",
-    line=dict(color="#EF553B", width=1, dash="dash"), opacity=0.8), row=1, col=1)
 fig.add_trace(go.Scatter(x=future_dates, y=future_prices, name="Forecast",
     line=dict(color="#AB63FA", width=2), mode="lines+markers",
     marker=dict(size=4)), row=1, col=1)
@@ -228,14 +160,14 @@ fig.add_trace(go.Scatter(
     fill="toself", fillcolor="rgba(171,99,250,0.1)",
     line=dict(color="rgba(255,255,255,0)"), name="±5% band"), row=1, col=1)
 
-fig.add_trace(go.Scatter(x=df.index, y=df["RSI"].squeeze(), name="RSI",
+fig.add_trace(go.Scatter(x=history.index, y=history["RSI"], name="RSI",
     line=dict(color="#19D3F3", width=1)), row=2, col=1)
 fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1)
 fig.add_hline(y=30, line_dash="dot", line_color="green", row=2, col=1)
 
-fig.add_trace(go.Scatter(x=df.index, y=df["MACD"].squeeze(), name="MACD",
+fig.add_trace(go.Scatter(x=history.index, y=history["MACD"], name="MACD",
     line=dict(color="#FF6692", width=1)), row=3, col=1)
-fig.add_trace(go.Scatter(x=df.index, y=df["Signal"].squeeze(), name="Signal",
+fig.add_trace(go.Scatter(x=history.index, y=history["Signal"], name="Signal",
     line=dict(color="#B6E880", width=1)), row=3, col=1)
 
 fig.update_layout(
@@ -248,11 +180,11 @@ fig.update_yaxes(title_text="RSI", row=2, col=1, range=[0, 100])
 fig.update_yaxes(title_text="MACD", row=3, col=1)
 st.plotly_chart(fig, width="stretch")
 
-rsi_val = df["RSI"].squeeze().iloc[-1]
-macd_val = df["MACD"].squeeze().iloc[-1]
-signal_val = df["Signal"].squeeze().iloc[-1]
-ma20_val = df["MA20"].squeeze().iloc[-1]
-ma50_val = df["MA50"].squeeze().iloc[-1]
+rsi_val = history["RSI"].iloc[-1]
+macd_val = history["MACD"].iloc[-1]
+signal_val = history["Signal"].iloc[-1]
+ma20_val = history["MA20"].iloc[-1]
+ma50_val = history["MA50"].iloc[-1]
 price_val = close_series[-1]
 
 if rsi_val > 70:
@@ -300,8 +232,8 @@ c3.info(macd_signal)
 
 c4.markdown("**Model Fit**")
 c4.caption(
-    "The dashed red line shows how well the model explains historical "
-    "prices. Closer to actual = better trained model."
+    "Historical fit MAE/RMSE/MAPE above show how well the model explains "
+    "prices it was trained on — a starting sanity check, not proof it forecasts well."
 )
 
 c5.markdown("**±5% Band**")
@@ -311,16 +243,59 @@ c5.caption(
 )
 
 st.subheader("Forecast Table")
-forecast_df = pd.DataFrame({
-    "Date": future_dates.strftime("%Y-%m-%d"),
+forecast_table = pd.DataFrame({
+    "Date": future_dates.dt.strftime("%Y-%m-%d"),
     "Predicted Close ($)": [f"{p:.2f}" for p in future_prices],
     "Change vs Today ($)": [f"{p - latest:+.2f}" for p in future_prices],
     "Change vs Today (%)": [f"{(p - latest)/latest*100:+.2f}%" for p in future_prices],
 })
-st.dataframe(forecast_df, width="stretch", hide_index=True)
+st.dataframe(forecast_table, width="stretch", hide_index=True)
+
+st.subheader("Tracked Accuracy (Out-of-Sample)")
+st.caption(
+    "Every prediction made above is logged with its target date. Once that date "
+    "passes, the app checks the real closing price and compares it to what was "
+    "predicted — this is the only trustworthy accuracy number on this page."
+)
+acc_col, btn_col = st.columns([4, 1])
+with btn_col:
+    if st.button("Check for resolved predictions"):
+        with st.spinner("Reconciling logged predictions with actual prices…"):
+            api_post("/reconcile")
+
+try:
+    accuracy = api_get(f"/accuracy/{ticker}")
+except requests.exceptions.RequestException:
+    accuracy = None
+
+if accuracy and accuracy["resolved_predictions"] > 0:
+    a1, a2, a3, a4 = st.columns(4)
+    a1.metric("Resolved predictions", accuracy["resolved_predictions"])
+    a2.metric("Out-of-sample MAE", f"${accuracy['mae']:.2f}")
+    a3.metric("Out-of-sample RMSE", f"${accuracy['rmse']:.2f}")
+    a4.metric("Out-of-sample MAPE", f"{accuracy['mape']:.2f}%")
+else:
+    st.info(
+        "No resolved predictions yet for this ticker. Predictions logged today "
+        "resolve once their target date arrives — check back after a trading day passes, "
+        "or click **Check for resolved predictions** above."
+    )
+
+with st.expander("Prediction log"):
+    try:
+        log_rows = api_get(f"/predictions/{ticker}")
+    except requests.exceptions.RequestException:
+        log_rows = []
+    if log_rows:
+        log_df = pd.DataFrame(log_rows)[
+            ["made_on", "target_date", "model_name", "window", "predicted_price", "actual_price"]
+        ]
+        st.dataframe(log_df, width="stretch", hide_index=True)
+    else:
+        st.caption("No predictions logged yet.")
 
 with st.expander("Raw historical data"):
     st.dataframe(
-        df[["Open", "High", "Low", "Close", "Volume", "MA20", "MA50", "RSI", "MACD"]].tail(100),
+        history[["Open", "High", "Low", "Close", "Volume", "MA20", "MA50", "RSI", "MACD"]].tail(100),
         width="stretch",
     )
