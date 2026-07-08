@@ -1,11 +1,13 @@
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-DATABASE_URL = "sqlite:///./stock_predictor.db"
-
-engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False}
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL", "postgresql+psycopg2://stockuser:stockpass@localhost:5432/stockdb"
 )
+
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
