@@ -25,11 +25,11 @@ def test_reconcile_actuals_resolves_past_predictions_only(db_session, monkeypatc
 
     log_predictions(
         db, "AAPL", "Gradient Boosting", 60, today - timedelta(days=5),
-        [(today - timedelta(days=2), 100.0)],  # past, unresolved -> should resolve
+        [(today - timedelta(days=2), 100.0)],
     )
     log_predictions(
         db, "AAPL", "Gradient Boosting", 60, today,
-        [(today + timedelta(days=5), 200.0)],  # future -> should NOT be touched
+        [(today + timedelta(days=5), 200.0)],
     )
 
     monkeypatch.setattr("app.backtest.fetch_close_on_or_after", lambda ticker, on_date: 105.0)

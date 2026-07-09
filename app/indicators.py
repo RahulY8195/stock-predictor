@@ -12,8 +12,6 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     loss = (-delta.clip(upper=0)).rolling(14).mean()
     with np.errstate(divide="ignore", invalid="ignore"):
         rs = gain / loss
-    # loss == 0 with gain > 0 (pure uptrend) -> rs = inf -> RSI correctly resolves to 100.
-    # loss == 0 and gain == 0 (no movement at all) -> rs = NaN -> RSI stays NaN, correctly "undefined".
     df["RSI"] = 100 - 100 / (1 + rs)
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()

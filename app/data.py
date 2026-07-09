@@ -10,8 +10,6 @@ import yfinance as yf
 def fetch_data(ticker: str, period: str) -> pd.DataFrame:
     df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
     if isinstance(df.columns, pd.MultiIndex):
-        # yfinance returns per-ticker MultiIndex columns (e.g. ("Close", "AAPL"))
-        # even for a single symbol; flatten to plain "Close", "Open", etc.
         df.columns = df.columns.get_level_values(0)
     df.dropna(inplace=True)
     return df
@@ -36,11 +34,6 @@ def fetch_info(ticker: str) -> dict:
 
 
 def fetch_close_on_or_after(ticker: str, on_date: date) -> float | None:
-    """Actual close price on the first trading day on/after `on_date`.
-
-    Used to reconcile a past prediction's target_date against what really
-    happened. Returns None if the market hasn't traded that date yet.
-    """
     df = yf.download(
         ticker,
         start=on_date,

@@ -50,7 +50,6 @@ def predict_future(model, scaler, last_window: np.ndarray, n_days: int) -> np.nd
 
 
 def fit_metrics(model, scaler, series: np.ndarray, window: int):
-    """Metrics on the historical fit (in-sample) — not a substitute for out-of-sample accuracy."""
     scaled_full = scaler.transform(series.reshape(-1, 1)).flatten()
     X_all, _ = build_sequences(scaled_full, window)
     y_pred = scaler.inverse_transform(model.predict(X_all).reshape(-1, 1)).flatten()

@@ -23,7 +23,6 @@ def test_train_model_and_predict_future_gradient_boosting(synthetic_price_df):
 
     assert forecast.shape == (10,)
     assert np.all(np.isfinite(forecast))
-    # Series trends from ~100 to ~140; forecast shouldn't be wildly outside that range.
     assert forecast.min() > 50
     assert forecast.max() < 250
 
@@ -48,4 +47,4 @@ def test_fit_metrics_reports_low_error_on_learnable_trend(synthetic_price_df):
 
     assert set(metrics.keys()) == {"mae", "rmse", "mape", "y_pred"}
     assert metrics["mae"] >= 0
-    assert metrics["mape"] < 25  # smooth synthetic trend should fit reasonably well
+    assert metrics["mape"] < 25

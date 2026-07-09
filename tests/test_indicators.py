@@ -21,7 +21,7 @@ def test_moving_averages_match_pandas_rolling():
 
 
 def test_rsi_is_100_for_strictly_increasing_series():
-    closes = np.arange(100, 160, 1.0)  # every day is a gain, no losses
+    closes = np.arange(100, 160, 1.0)
     df = add_indicators(_df_from_closes(closes))
 
     rsi_tail = df["RSI"].iloc[20:]
@@ -29,7 +29,7 @@ def test_rsi_is_100_for_strictly_increasing_series():
 
 
 def test_rsi_is_0_for_strictly_decreasing_series():
-    closes = np.arange(160, 100, -1.0)  # every day is a loss, no gains
+    closes = np.arange(160, 100, -1.0)
     df = add_indicators(_df_from_closes(closes))
 
     rsi_tail = df["RSI"].iloc[20:]

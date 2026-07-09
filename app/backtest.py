@@ -34,7 +34,6 @@ def log_predictions(
 
 
 def reconcile_actuals(db: Session, fetch_close_fn=None) -> dict:
-    """Fill in actual_price for predictions whose target_date has passed."""
     if fetch_close_fn is None:
         fetch_close_fn = fetch_close_on_or_after
 

@@ -40,7 +40,6 @@ def client(db_session):
 
 @pytest.fixture()
 def synthetic_price_df():
-    """A deterministic, gently-trending price series with enough rows to train on."""
     rng = np.random.default_rng(42)
     n = 300
     dates = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=n)

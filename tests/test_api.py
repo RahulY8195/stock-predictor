@@ -88,8 +88,6 @@ def test_accuracy_is_empty_before_any_predictions_resolve(client):
 
 
 def test_predict_targets_are_all_future_so_nothing_resolves_yet(client):
-    """A freshly logged forecast targets future trading days, so reconcile
-    shouldn't touch it until those dates actually pass."""
     client.post(
         "/predict",
         json={"ticker": "AAPL", "window": 30, "forecast_days": 5},
@@ -104,7 +102,6 @@ def test_predict_targets_are_all_future_so_nothing_resolves_yet(client):
 
 
 def test_reconcile_then_accuracy_reflects_resolved_predictions(client, db_session):
-    """Predictions with a target_date in the past should resolve and feed accuracy."""
     db = db_session()
     log_predictions(
         db, "AAPL", "Gradient Boosting", 30, date.today() - timedelta(days=5),
